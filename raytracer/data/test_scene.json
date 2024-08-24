@@ -1,7 +1,7 @@
 {
   "width": 800,
   "height": 600,
-  "samples_per_pixel": 128,
+  "samples_per_pixel": 32,
   "max_depth": 50,
   "sky": {
     "texture":"data/beach.jpg"

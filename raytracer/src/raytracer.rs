@@ -1,3 +1,5 @@
+use bvh::bounding_hierarchy::BoundingHierarchy;
+use bvh::bvh::Bvh;
 use image::png::PNGEncoder;
 use image::ColorType;
 use palette::Pixel;
@@ -42,14 +44,23 @@ fn write_image(
 }
 
 fn hit_world<'material>(
-    world: &'material Vec<Sphere>,
+    world: &'material Config,
     r: &Ray,
     t_min: f64,
     t_max: f64,
 ) -> Option<HitRecord<'material>> {
     let mut closest_so_far = t_max;
     let mut hit_record = None;
-    for sphere in world {
+    // for sphere in &world.objects {
+    //     if let Some(hit) = sphere.hit(r, t_min, closest_so_far) {
+    //         closest_so_far = hit.t;
+    //         hit_record = Some(hit);
+    //     }
+    // }
+    let ro = nalgebra::Point3::new(r.origin.x(), r.origin.y(), r.origin.z());
+    let rd = nalgebra::Vector3::new(r.direction.x(), r.direction.y(), r.direction.z());
+    let ray: bvh::ray::Ray<f64,3> = bvh::ray::Ray::new(ro, rd);
+    for sphere in world.bvh.as_ref().unwrap().nearest_traverse_iterator(&ray, &world.objects) {
         if let Some(hit) = sphere.hit(r, t_min, closest_so_far) {
             closest_so_far = hit.t;
             hit_record = Some(hit);
@@ -80,7 +91,7 @@ fn ray_color(
     if depth <= 0 {
         return Srgb::new(0.0, 0.0, 0.0);
     }
-    let hit = hit_world(&scene.objects, ray, 0.001, std::f64::MAX);
+    let hit = hit_world(&scene, ray, 0.001, std::f64::MAX);
     match hit {
         Some(hit_record) => {
             let scattered = hit_record.material.scatter(ray, &hit_record);
@@ -183,6 +194,7 @@ fn test_ray_color() {
             1.333,
         ),
         objects: Vec::new(),
+        bvh: None,
     };
     let l = Vec::new();
     assert_eq!(ray_color(&r, &scene, &l, 2, 2), Srgb::new(0.75, 0.85, 1.0));
@@ -247,9 +259,12 @@ fn test_find_lights() {
     assert_eq!(find_lights(&world).len(), 1);
 }
 
-pub fn render(filename: &str, scene: Config) {
+pub fn render(filename: &str, mut scene: Config) {
     let image_width = scene.width;
     let image_height = scene.height;
+
+    let bvh = Bvh::build(&mut scene.objects);
+    scene.bvh = Some(bvh);
 
     let mut pixels = vec![0; image_width * image_height * 3];
     let bands: Vec<(usize, &mut [u8])> = pixels.chunks_mut(image_width * 3).enumerate().collect();

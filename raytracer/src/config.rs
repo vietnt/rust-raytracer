@@ -72,6 +72,8 @@ pub struct Config {
     pub sky: Option<Sky>,
     pub camera: Camera,
     pub objects: Vec<Sphere>,
+    #[serde(skip)]
+    pub bvh: Option<bvh::bvh::Bvh<f64,3>>,
 }
 
 #[test]

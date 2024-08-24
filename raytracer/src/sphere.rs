@@ -1,3 +1,6 @@
+use bvh::aabb::Aabb;
+use bvh::aabb::Bounded;
+use bvh::bounding_hierarchy::BHShape;
 use serde::{Deserialize, Serialize};
 
 use crate::materials::Material;
@@ -20,6 +23,28 @@ pub struct Sphere {
     pub center: Point3D,
     pub radius: f64,
     pub material: Material,
+    #[serde(skip)]
+    node_index: usize,
+}
+
+impl Bounded<f64, 3> for Sphere {
+    fn aabb(&self) -> Aabb<f64,3> {
+        let radius = self.radius;
+        let center = self.center;
+        let min = nalgebra::Point3::new(center.x() - radius, center.y() - radius, center.z() - radius);
+        let max = nalgebra::Point3::new(center.x() + radius, center.y() + radius, center.z() + radius);
+        Aabb::with_bounds(min, max)
+    }
+}
+
+impl BHShape<f64,3> for Sphere {
+    fn set_bh_node_index(&mut self, index: usize) {
+        self.node_index = index;
+    }
+
+    fn bh_node_index(&self) -> usize {
+        self.node_index
+    }
 }
 
 impl Sphere {
@@ -28,6 +53,7 @@ impl Sphere {
             center,
             radius,
             material,
+            node_index: 0,
         }
     }
 }
