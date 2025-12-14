@@ -1,9 +1,13 @@
+use std::borrow::BorrowMut;
+
 use bvh::aabb::Aabb;
 use bvh::aabb::Bounded;
 use bvh::bounding_hierarchy::BHShape;
 use serde::{Deserialize, Serialize};
 
 use crate::materials::Material;
+use crate::mesh::Cube;
+use crate::mesh::Mesh;
 use crate::point3d::Point3D;
 use crate::ray::HitRecord;
 use crate::ray::Hittable;
@@ -18,26 +22,102 @@ use crate::materials::Texture;
 #[cfg(test)]
 use palette::Srgb;
 
+use crate::point3d::deserialize_point3d;
+use nalgebra::Vector3;
+
+#[derive(Clone, Deserialize, Serialize)]
+pub enum RayObjectKind {
+    Sphere(Sphere),
+    #[serde(skip)]
+    Mesh(Mesh),
+    #[serde(skip)]
+    Cube(Cube),
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct RayObject {
+    pub index: usize,
+    pub kind: RayObjectKind,
+}
+
+impl RayObject {
+    pub fn new(kind: RayObjectKind) -> RayObject {
+        RayObject { index: 0, kind }
+    }
+
+    pub fn mesh(mesh: Mesh) -> RayObject {
+        RayObject {
+            index: 0,
+            kind: RayObjectKind::Mesh(mesh),
+        }
+    }
+
+    pub fn cube(cube: Cube) -> RayObject {
+        RayObject {
+            index: 0,
+            kind: RayObjectKind::Cube(cube),
+        }
+    }
+
+    pub fn sphere(sphere: Sphere) -> RayObject {
+        RayObject {
+            index: 0,
+            kind: RayObjectKind::Sphere(sphere),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Sphere {
+    #[serde(deserialize_with = "deserialize_point3d")]
     pub center: Point3D,
-    pub radius: f64,
+    pub radius: f32,
     pub material: Material,
     #[serde(skip)]
     node_index: usize,
 }
 
-impl Bounded<f64, 3> for Sphere {
-    fn aabb(&self) -> Aabb<f64,3> {
+impl Bounded<f32, 3> for RayObject {
+    fn aabb(&self) -> Aabb<f32, 3> {
+        match &self.kind {
+            RayObjectKind::Sphere(s) => s.aabb(),
+            RayObjectKind::Mesh(m) => m.aabb(),
+            RayObjectKind::Cube(c) => c.aabb(),
+        }
+    }
+}
+
+impl Hittable for RayObject {
+    fn hit(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
+        match &self.kind {
+            RayObjectKind::Sphere(s) => s.hit(ray, t_min, t_max),
+            RayObjectKind::Mesh(m) => m.hit(ray, t_min, t_max),
+            RayObjectKind::Cube(c) => c.hit(ray, t_min, t_max),
+        }
+    }
+}
+
+impl BHShape<f32, 3> for RayObject {
+    fn set_bh_node_index(&mut self, index: usize) {
+        self.index = index;
+    }
+
+    fn bh_node_index(&self) -> usize {
+        self.index
+    }
+}
+
+impl Bounded<f32, 3> for Sphere {
+    fn aabb(&self) -> Aabb<f32, 3> {
         let radius = self.radius;
         let center = self.center;
-        let min = nalgebra::Point3::new(center.x() - radius, center.y() - radius, center.z() - radius);
-        let max = nalgebra::Point3::new(center.x() + radius, center.y() + radius, center.z() + radius);
+        let min = nalgebra::Point3::new(center.x - radius, center.y - radius, center.z - radius);
+        let max = nalgebra::Point3::new(center.x + radius, center.y + radius, center.z + radius);
         Aabb::with_bounds(min, max)
     }
 }
 
-impl BHShape<f64,3> for Sphere {
+impl BHShape<f32, 3> for Sphere {
     fn set_bh_node_index(&mut self, index: usize) {
         self.node_index = index;
     }
@@ -48,7 +128,7 @@ impl BHShape<f64,3> for Sphere {
 }
 
 impl Sphere {
-    pub fn new(center: Point3D, radius: f64, material: Material) -> Sphere {
+    pub fn new(center: Point3D, radius: f32, material: Material) -> Sphere {
         Sphere {
             center,
             radius,
@@ -58,22 +138,22 @@ impl Sphere {
     }
 }
 
-fn u_v_from_sphere_hit_point(hit_point_on_sphere: Point3D) -> (f64, f64) {
-    let n = hit_point_on_sphere.unit_vector();
-    let x = n.x();
-    let y = n.y();
-    let z = n.z();
-    let u = (x.atan2(z) / (2.0 * std::f64::consts::PI)) + 0.5;
+fn u_v_from_sphere_hit_point(hit_point_on_sphere: Point3D) -> (f32, f32) {
+    let n = hit_point_on_sphere.normalize();
+    let x = n.x;
+    let y = n.y;
+    let z = n.z;
+    let u = (x.atan2(z) / (2.0 * std::f32::consts::PI)) + 0.5;
     let v = y * 0.5 + 0.5;
     (u, v)
 }
 
 impl Hittable for Sphere {
-    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
+    fn hit(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
         let oc = ray.origin - self.center;
-        let a = ray.direction.length_squared();
+        let a = ray.direction.norm_squared();
         let half_b = oc.dot(&ray.direction);
-        let c = oc.length_squared() - self.radius * self.radius;
+        let c = oc.norm_squared() - self.radius * self.radius;
         let discriminant = (half_b * half_b) - (a * c);
 
         if discriminant >= 0.0 {
@@ -109,7 +189,7 @@ fn test_sphere_hit() {
     let center = Point3D::new(0.0, 0.0, 0.0);
     let sphere = Sphere::new(center, 1.0, Material::Glass(Glass::new(1.5)));
     let ray = Ray::new(Point3D::new(0.0, 0.0, -5.0), Point3D::new(0.0, 0.0, 1.0));
-    let hit = sphere.hit(&ray, 0.0, f64::INFINITY);
+    let hit = sphere.hit(&ray, 0.0, f32::INFINITY);
     assert_eq!(hit.unwrap().t, 4.0);
 }
 

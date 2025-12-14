@@ -15,23 +15,37 @@ impl Ray {
         Ray { origin, direction }
     }
 
-    pub fn at(&self, t: f64) -> Point3D {
+    pub fn at(&self, t: f32) -> Point3D {
         self.origin + self.direction * t
     }
 }
 
 pub struct HitRecord<'material> {
-    pub t: f64,
+    pub t: f32,
     pub point: Point3D,
     pub normal: Point3D,
     pub front_face: bool,
     pub material: &'material Material,
-    pub u: f64,
-    pub v: f64,
+    pub u: f32,
+    pub v: f32,
+}
+
+impl HitRecord<'_> {
+    pub fn new(material: &Material) -> HitRecord {
+        HitRecord {
+            t: 0.0,
+            point: Point3D::default(),
+            normal: Point3D::default(),
+            front_face: false,
+            material,
+            u: 0.0,
+            v: 0.0,
+        }
+    }
 }
 
 pub trait Hittable {
-    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
+    fn hit(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord>;
 }
 
 #[test]
@@ -41,12 +55,12 @@ fn test_ray() {
 
     let r = Ray::new(p, q);
 
-    assert_approx_eq!(r.origin.x(), 0.1);
-    assert_approx_eq!(r.origin.y(), 0.2);
-    assert_approx_eq!(r.origin.z(), 0.3);
-    assert_approx_eq!(r.direction.x(), 0.2);
-    assert_approx_eq!(r.direction.y(), 0.3);
-    assert_approx_eq!(r.direction.z(), 0.4);
+    assert_approx_eq!(r.origin.x, 0.1);
+    assert_approx_eq!(r.origin.y, 0.2);
+    assert_approx_eq!(r.origin.z, 0.3);
+    assert_approx_eq!(r.direction.x, 0.2);
+    assert_approx_eq!(r.direction.y, 0.3);
+    assert_approx_eq!(r.direction.z, 0.4);
 }
 
 #[test]
@@ -57,7 +71,7 @@ fn test_ray_at() {
     let r = Ray::new(p, q);
     let s = r.at(0.5);
 
-    assert_approx_eq!(s.x(), 0.5);
-    assert_approx_eq!(s.y(), 1.0);
-    assert_approx_eq!(s.z(), 1.5);
+    assert_approx_eq!(s.x, 0.5);
+    assert_approx_eq!(s.y, 1.0);
+    assert_approx_eq!(s.z, 1.5);
 }

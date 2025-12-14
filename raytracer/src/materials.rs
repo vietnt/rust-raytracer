@@ -1,4 +1,5 @@
 use jpeg_decoder::Decoder;
+use nalgebra::Vector3;
 use palette::Srgb;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -6,21 +7,22 @@ use serde_with::serde_as;
 use std::fs::File;
 use std::io::BufReader;
 
+use crate::point3d;
 use crate::point3d::Point3D;
 use crate::ray::HitRecord;
 use crate::ray::Ray;
 
 pub trait Scatterable {
-    fn scatter(&self, ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Srgb)>;
+    fn scatter(&self, ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Vector3<f32>)>;
 }
 
 // https://docs.rs/serde_with/1.9.4/serde_with/macro.serde_conv.html
 serde_with::serde_conv!(
     SrgbAsArray,
-    Srgb,
-    |srgb: &Srgb| [srgb.red, srgb.green, srgb.blue],
+    Vector3<f32>,
+    |srgb: &Vector3<f32>| [srgb.x, srgb.y, srgb.z],
     |value: [f32; 3]| -> Result<_, std::convert::Infallible> {
-        Ok(Srgb::new(value[0], value[1], value[2]))
+        Ok(Vector3::new(value[0], value[1], value[2]))
     }
 );
 
@@ -42,7 +44,7 @@ pub enum Material {
 }
 
 impl Scatterable for Material {
-    fn scatter(&self, ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Srgb)> {
+    fn scatter(&self, ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Vector3<f32>)> {
         match self {
             Material::Lambertian(l) => l.scatter(ray, hit_record),
             Material::Metal(m) => m.scatter(ray, hit_record),
@@ -63,8 +65,8 @@ impl Light {
 }
 
 impl Scatterable for Light {
-    fn scatter(&self, _ray: &Ray, _hit_record: &HitRecord) -> Option<(Option<Ray>, Srgb)> {
-        Some((None, Srgb::new(1.0, 1.0, 1.0)))
+    fn scatter(&self, _ray: &Ray, _hit_record: &HitRecord) -> Option<(Option<Ray>, Vector3<f32>)> {
+        Some((None, Vector3::new(1.0, 1.0, 1.0)))
     }
 }
 
@@ -72,19 +74,19 @@ impl Scatterable for Light {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub struct Lambertian {
     #[serde_as(as = "SrgbAsArray")]
-    pub albedo: Srgb,
+    pub albedo: Vector3<f32>,
 }
 
 impl Lambertian {
-    pub fn new(albedo: Srgb) -> Lambertian {
+    pub fn new(albedo: Vector3<f32>) -> Lambertian {
         Lambertian { albedo }
     }
 }
 
 impl Scatterable for Lambertian {
-    fn scatter(&self, _ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Srgb)> {
-        let mut scatter_direction = hit_record.normal + Point3D::random_in_unit_sphere();
-        if scatter_direction.near_zero() {
+    fn scatter(&self, _ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Vector3<f32>)> {
+        let mut scatter_direction = hit_record.normal + point3d::random_in_unit_sphere();
+        if point3d::is_near_zero(&scatter_direction) {
             scatter_direction = hit_record.normal;
         }
         let target = hit_record.point + scatter_direction;
@@ -98,12 +100,12 @@ impl Scatterable for Lambertian {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub struct Metal {
     #[serde_as(as = "SrgbAsArray")]
-    pub albedo: Srgb,
-    pub fuzz: f64,
+    pub albedo: Vector3<f32>,
+    pub fuzz: f32,
 }
 
 impl Metal {
-    pub fn new(albedo: Srgb, fuzz: f64) -> Metal {
+    pub fn new(albedo: Vector3<f32>, fuzz: f32) -> Metal {
         Metal { albedo, fuzz }
     }
 }
@@ -113,11 +115,11 @@ fn reflect(v: &Point3D, n: &Point3D) -> Point3D {
 }
 
 impl Scatterable for Metal {
-    fn scatter(&self, ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Srgb)> {
+    fn scatter(&self, ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Vector3<f32>)> {
         let reflected = reflect(&ray.direction, &hit_record.normal);
         let scattered = Ray::new(
             hit_record.point,
-            reflected + Point3D::random_in_unit_sphere() * self.fuzz,
+            reflected + point3d::random_in_unit_sphere() * self.fuzz,
         );
         let attenuation = self.albedo;
         if scattered.direction.dot(&hit_record.normal) > 0.0 {
@@ -130,25 +132,25 @@ impl Scatterable for Metal {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub struct Glass {
-    pub index_of_refraction: f64,
+    pub index_of_refraction: f32,
 }
 
 impl Glass {
-    pub fn new(index_of_refraction: f64) -> Glass {
+    pub fn new(index_of_refraction: f32) -> Glass {
         Glass {
             index_of_refraction,
         }
     }
 }
 
-fn refract(uv: &Point3D, n: &Point3D, etai_over_etat: f64) -> Point3D {
+fn refract(uv: &Point3D, n: &Point3D, etai_over_etat: f32) -> Point3D {
     let cos_theta = ((-*uv).dot(n)).min(1.0);
     let r_out_perp = (*uv + *n * cos_theta) * etai_over_etat;
-    let r_out_parallel = *n * (-1.0 * (1.0 - r_out_perp.length_squared()).abs().sqrt());
+    let r_out_parallel = *n * (-1.0 * (1.0 - r_out_perp.norm_squared()).abs().sqrt());
     r_out_perp + r_out_parallel
 }
 
-fn reflectance(cosine: f64, ref_idx: f64) -> f64 {
+fn reflectance(cosine: f32, ref_idx: f32) -> f32 {
     let mut r0 = (1.0 - ref_idx) / (1.0 + ref_idx);
     r0 = r0 * r0;
     r0 + (1.0 - r0) * (1.0 - cosine).powi(5)
@@ -174,19 +176,19 @@ fn test_reflectance() {
 }
 
 impl Scatterable for Glass {
-    fn scatter(&self, ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Srgb)> {
+    fn scatter(&self, ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Vector3<f32>)> {
         let mut rng = rand::thread_rng();
-        let attenuation = Srgb::new(1.0 as f32, 1.0 as f32, 1.0 as f32);
+        let attenuation = Vector3::new(1.0 as f32, 1.0 as f32, 1.0 as f32);
         let refraction_ratio = if hit_record.front_face {
             1.0 / self.index_of_refraction
         } else {
             self.index_of_refraction
         };
-        let unit_direction = ray.direction.unit_vector();
+        let unit_direction = ray.direction.normalize();
         let cos_theta = (-unit_direction).dot(&hit_record.normal).min(1.0);
         let sin_theta = (1.0 - cos_theta * cos_theta).sqrt();
         let cannot_refract = refraction_ratio * sin_theta > 1.0;
-        if cannot_refract || reflectance(cos_theta, refraction_ratio) > rng.gen::<f64>() {
+        if cannot_refract || reflectance(cos_theta, refraction_ratio) > rng.gen::<f32>() {
             let reflected = reflect(&unit_direction, &hit_record.normal);
             let scattered = Ray::new(hit_record.point, reflected);
             Some((Some(scattered), attenuation))
@@ -202,12 +204,12 @@ impl Scatterable for Glass {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Texture {
     #[serde_as(as = "SrgbAsArray")]
-    pub albedo: Srgb,
+    pub albedo: Vector3<f32>,
     #[serde_as(as = "TexturePixelsAsPath")]
     pub pixels: Vec<u8>,
     width: u64,
     height: u64,
-    h_offset: f64,
+    h_offset: f32,
 }
 
 fn load_texture_image(path: &str) -> (Vec<u8>, u64, u64) {
@@ -219,7 +221,7 @@ fn load_texture_image(path: &str) -> (Vec<u8>, u64, u64) {
 }
 
 impl Texture {
-    pub fn new(albedo: Srgb, texture_path: &str, rot: f64) -> Texture {
+    pub fn new(albedo: Vector3<f32>, texture_path: &str, rot: f32) -> Texture {
         let file = File::open(texture_path).expect("failed to open texture file");
         let mut decoder = Decoder::new(BufReader::new(file));
         let pixels = decoder.decode().expect("failed to decode image");
@@ -233,19 +235,19 @@ impl Texture {
         }
     }
 
-    pub fn get_albedo(&self, u: f64, v: f64) -> Srgb {
+    pub fn get_albedo(&self, u: f32, v: f32) -> Vector3<f32> {
         let mut rot = u + self.h_offset;
         if rot > 1.0 {
             rot = rot - 1.0;
         }
-        let uu = rot * (self.width) as f64;
-        let vv = (1.0 - v) * (self.height - 1) as f64;
+        let uu = rot * (self.width) as f32;
+        let vv = (1.0 - v) * (self.height - 1) as f32;
         let base_pixel =
             (3 * ((vv.floor() as u64) * self.width as u64 + (uu.floor() as u64))) as usize;
         let pixel_r = self.pixels[base_pixel];
         let pixel_g = self.pixels[base_pixel + 1];
         let pixel_b = self.pixels[base_pixel + 2];
-        Srgb::new(
+        Vector3::new(
             pixel_r as f32 / 255.0,
             pixel_g as f32 / 255.0,
             pixel_b as f32 / 255.0,
@@ -254,9 +256,9 @@ impl Texture {
 }
 
 impl Scatterable for Texture {
-    fn scatter(&self, _ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Srgb)> {
-        let mut scatter_direction = hit_record.normal + Point3D::random_in_unit_sphere();
-        if scatter_direction.near_zero() {
+    fn scatter(&self, _ray: &Ray, hit_record: &HitRecord) -> Option<(Option<Ray>, Vector3<f32>)> {
+        let mut scatter_direction = hit_record.normal + point3d::random_in_unit_sphere();
+        if point3d::is_near_zero(&scatter_direction) {
             scatter_direction = hit_record.normal;
         }
         let target = hit_record.point + scatter_direction;
@@ -269,7 +271,7 @@ impl Scatterable for Texture {
 #[test]
 fn test_texture() {
     let _world = Material::Texture(Texture::new(
-        Srgb::new(1.0, 1.0, 1.0),
+        Vector3::new(1.0, 1.0, 1.0),
         "data/earth.jpg",
         0.0,
     ));
@@ -277,7 +279,7 @@ fn test_texture() {
 
 #[test]
 fn test_to_json() {
-    let m = Metal::new(Srgb::new(0.8, 0.8, 0.8), 2.0);
+    let m = Metal::new(Vector3::new(0.8, 0.8, 0.8), 2.0);
     let serialized = serde_json::to_string(&m).unwrap();
     assert_eq!(r#"{"albedo":[0.8,0.8,0.8],"fuzz":2.0}"#, serialized,);
 }
